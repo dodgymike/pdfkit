@@ -62,7 +62,8 @@ class PDFKit
 
     invoke = command(path)
 
-    result = IO.popen(invoke, "wb+") do |pdf|
+    ENV['PATH'] = '/usr/local/rbenv/shims:' + ENV['PATH']
+    result = IO.popen(ENV, invoke, "wb+") do |pdf|
       pdf.puts(@source.to_s) if @source.html?
       pdf.close_write
       pdf.gets(nil) if path.nil?
