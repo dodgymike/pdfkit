@@ -9,6 +9,10 @@ class PDFKit
     end
 
     def call(env)
+      dup._call(env)
+    end
+
+    def _call(env)
       @request    = Rack::Request.new(env)
       @render_pdf = false
 
@@ -22,6 +26,11 @@ class PDFKit
         root_url = root_url(env)
         protocol = protocol(env)
         options = @options.merge(root_url: root_url, protocol: protocol)
+
+        if headers['PDFKit-javascript-delay']
+          options.merge!(javascript_delay: headers.delete('PDFKit-javascript-delay').to_i)
+        end
+
         body = PDFKit.new(body, options).to_pdf
         response = [body]
 

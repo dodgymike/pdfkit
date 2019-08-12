@@ -21,6 +21,35 @@ describe PDFKit::Middleware do
   end
 
   describe "#call" do
+
+    describe 'threadsafety' do
+      before { mock_app }
+      it 'is threadsafe' do
+        n = 30
+        extensions = Array.new(n) { rand > 0.5 ? 'html' : 'pdf' }
+        actual_content_types = Hash.new
+
+        threads = (0...n).map { |i|
+          Thread.new do
+            resp = get("http://www.example.org/public/test.#{extensions[i]}")
+            actual_content_types[i] = resp.content_type
+          end
+        }
+
+        threads.each(&:join)
+
+        extensions.each_with_index do |extension, index|
+          result = actual_content_types[index]
+          case extension
+          when 'html', 'txt', 'csv'
+            expect(result).to eq("text/#{extension}")
+          when 'pdf'
+            expect(result).to eq('application/pdf')
+          end
+        end
+      end
+    end
+
     describe "caching" do
       let(:headers) do
         {
@@ -267,6 +296,51 @@ describe PDFKit::Middleware do
           end
         end
       end
+
+      describe 'javascript delay' do
+        context 'when header PDFKit-javascript-delay is present' do
+          it 'passes header value through to PDFKit initialiser' do
+            expect(PDFKit).to receive(:new).with('Hello world!', {
+              root_url: 'http://www.example.com/', protocol: 'http', javascript_delay: 4321
+            }).and_call_original
+
+            headers = { 'PDFKit-javascript-delay' => '4321' }
+            mock_app({}, { only: '/public' }, headers)
+            get 'http://www.example.com/public/test_save.pdf'
+          end
+
+          it 'handles invalid content in header' do
+            expect(PDFKit).to receive(:new).with('Hello world!', {
+              root_url: 'http://www.example.com/', protocol: 'http', javascript_delay: 0
+            }).and_call_original
+
+            headers = { 'PDFKit-javascript-delay' => 'invalid' }
+            mock_app({}, { only: '/public' }, headers)
+            get 'http://www.example.com/public/test_save.pdf'
+          end
+
+          it 'overrides default option' do
+            expect(PDFKit).to receive(:new).with('Hello world!', {
+              root_url: 'http://www.example.com/', protocol: 'http', javascript_delay: 4321
+            }).and_call_original
+
+            headers = { 'PDFKit-javascript-delay' => '4321' }
+            mock_app({ javascript_delay: 1234 }, { only: '/public' }, headers)
+            get 'http://www.example.com/public/test_save.pdf'
+          end
+        end
+
+        context 'when header PDFKit-javascript-delay is not present' do
+          it 'passes through default option' do
+            expect(PDFKit).to receive(:new).with('Hello world!', {
+              root_url: 'http://www.example.com/', protocol: 'http', javascript_delay: 1234
+            }).and_call_original
+
+            mock_app({ javascript_delay: 1234 }, { only: '/public' }, { })
+            get 'http://www.example.com/public/test_save.pdf'
+          end
+        end
+      end
     end
 
     describe "remove .pdf from PATH_INFO and REQUEST_URI" do
@@ -351,23 +425,5 @@ describe PDFKit::Middleware do
         expect(protocol).to eq('http')
       end
     end
-  end
-
-  it "does not get stuck rendering each request as pdf" do
-    mock_app
-    # false by default. No requests.
-    expect(@app.send(:rendering_pdf?)).to eq(false)
-
-    # Remain false on a normal request
-    get 'http://www.example.org/public/file'
-    expect(@app.send(:rendering_pdf?)).to eq(false)
-
-    # Return true on a pdf request.
-    get 'http://www.example.org/public/file.pdf'
-    expect(@app.send(:rendering_pdf?)).to eq(true)
-
-    # Restore to false on any non-pdf request.
-    get 'http://www.example.org/public/file'
-    expect(@app.send(:rendering_pdf?)).to eq(false)
   end
 end
